@@ -9,14 +9,15 @@ import { ArrowLeft, CreditCard, Truck, Check, Smartphone } from "lucide-react"
 import { useCart } from "@/hooks/use-cart"
 import { useAuth } from "@/hooks/use-auth"
 import { useEmailNotifications } from "@/hooks/use-email-notifications"
+import { usePaystack } from "@/hooks/use-paystack"
 import Image from "next/image"
 
 type CheckoutStep = "shipping" | "payment" | "confirmation"
-type PaymentMethod = "card" | "momo"
+type PaymentMethod = "paystack" | "momo"
 
 export default function CheckoutPage() {
   const [currentStep, setCurrentStep] = useState<CheckoutStep>("shipping")
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card")
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("paystack")
   const [shippingInfo, setShippingInfo] = useState({
     fullName: "",
     address: "",
@@ -25,12 +26,6 @@ export default function CheckoutPage() {
     zipCode: "",
     country: "Ghana",
     phone: "",
-  })
-  const [paymentInfo, setPaymentInfo] = useState({
-    cardNumber: "",
-    cardName: "",
-    expiry: "",
-    cvv: "",
   })
   const [momoInfo, setMomoInfo] = useState({
     provider: "mtn",
@@ -44,6 +39,93 @@ export default function CheckoutPage() {
   const { user } = useAuth()
   const { sendOrderConfirmation } = useEmailNotifications()
   const router = useRouter()
+
+  const {
+    initializePayment,
+    verifyPayment,
+    isLoading: paystackLoading,
+  } = usePaystack({
+    onSuccess: async (reference) => {
+      try {
+        // Verify payment
+        const verification = await verifyPayment(reference)
+
+        if (verification.status && verification.data.status === "success") {
+          await handlePaymentSuccess(reference)
+        } else {
+          alert("Payment verification failed. Please contact support.")
+          setIsProcessing(false)
+        }
+      } catch (error) {
+        console.error("Payment verification error:", error)
+        alert("Payment verification failed. Please contact support.")
+        setIsProcessing(false)
+      }
+    },
+    onError: (error) => {
+      console.error("Payment error:", error)
+      alert(`Payment failed: ${error}`)
+      setIsProcessing(false)
+    },
+    onClose: () => {
+      setIsProcessing(false)
+    },
+  })
+
+  const handlePaymentSuccess = async (paymentReference: string) => {
+    const newOrderId = `ORD-${Math.floor(100000 + Math.random() * 900000)}`
+    const trackingNumber = `TRK-${Math.floor(100000 + Math.random() * 900000)}`
+    setOrderId(newOrderId)
+
+    // Save order to localStorage for order history
+    const order = {
+      id: newOrderId,
+      trackingNumber,
+      paymentReference,
+      date: new Date().toISOString(),
+      items: cartItems,
+      total: totalAmount,
+      status: "Processing",
+      shippingInfo,
+      paymentMethod: paymentMethod === "momo" ? `Mobile Money (${momoInfo.provider.toUpperCase()})` : "Paystack",
+      statusHistory: [
+        {
+          status: "Order Placed",
+          date: new Date().toISOString(),
+          description: "Your order has been received and payment confirmed",
+        },
+      ],
+    }
+
+    const existingOrders = JSON.parse(localStorage.getItem(`orders-${user?.id}`) || "[]")
+    existingOrders.unshift(order)
+    localStorage.setItem(`orders-${user?.id}`, JSON.stringify(existingOrders))
+
+    // Send order confirmation email
+    try {
+      await sendOrderConfirmation({
+        id: newOrderId,
+        customerEmail: user?.email,
+        total: totalAmount,
+        items: cartItems,
+      })
+    } catch (error) {
+      console.error("Failed to send confirmation email:", error)
+    }
+
+    // Show browser notification
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Order Confirmed!", {
+        body: `Your order #${newOrderId} has been placed successfully.`,
+        icon: "/placeholder-logo.png",
+      })
+    }
+
+    setCurrentStep("confirmation")
+    clearCart()
+    setIsProcessing(false)
+    window.scrollTo(0, 0)
+  }
 
   const handleShippingSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,52 +142,29 @@ export default function CheckoutPage() {
       await Notification.requestPermission()
     }
 
-    // Simulate payment processing
-    setTimeout(async () => {
-      setIsProcessing(false)
-      const newOrderId = `ORD-${Math.floor(100000 + Math.random() * 900000)}`
-      const trackingNumber = `TRK-${Math.floor(100000 + Math.random() * 900000)}`
-      setOrderId(newOrderId)
-
-      // Save order to localStorage for order history
-      const order = {
-        id: newOrderId,
-        trackingNumber,
-        date: new Date().toISOString(),
-        items: cartItems,
-        total: totalAmount,
-        status: "Processing",
-        shippingInfo,
-        paymentMethod: paymentMethod === "momo" ? `Mobile Money (${momoInfo.provider.toUpperCase()})` : "Credit Card",
-        statusHistory: [
-          {
-            status: "Order Placed",
-            date: new Date().toISOString(),
-            description: "Your order has been received and is being processed",
-          },
-        ],
-      }
-
-      const existingOrders = JSON.parse(localStorage.getItem(`orders-${user?.id}`) || "[]")
-      existingOrders.unshift(order)
-      localStorage.setItem(`orders-${user?.id}`, JSON.stringify(existingOrders))
-
-      // Send order confirmation email
-      try {
-        await sendOrderConfirmation({
-          id: newOrderId,
-          customerEmail: user?.email,
-          total: totalAmount,
-          items: cartItems,
-        })
-      } catch (error) {
-        console.error("Failed to send confirmation email:", error)
-      }
-
-      setCurrentStep("confirmation")
-      clearCart()
-      window.scrollTo(0, 0)
-    }, 2000)
+    if (paymentMethod === "paystack") {
+      // Use Paystack payment
+      await initializePayment({
+        email: user?.email || shippingInfo.fullName.toLowerCase().replace(/\s+/g, "") + "@example.com",
+        amount: totalAmount,
+        currency: "GHS",
+        metadata: {
+          orderId: `ORD-${Date.now()}`,
+          customerName: shippingInfo.fullName,
+          customerPhone: shippingInfo.phone,
+          items: cartItems.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        },
+      })
+    } else {
+      // Simulate mobile money payment
+      setTimeout(async () => {
+        await handlePaymentSuccess(`MOMO-${Date.now()}`)
+      }, 2000)
+    }
   }
 
   const shippingCost = 71.88 // ~$5.99 * 12
@@ -330,12 +389,13 @@ export default function CheckoutPage() {
                   <button
                     type="button"
                     className={`p-4 border-2 rounded-lg flex flex-col items-center ${
-                      paymentMethod === "card" ? "border-rose-500 bg-rose-50" : "border-gray-300"
+                      paymentMethod === "paystack" ? "border-rose-500 bg-rose-50" : "border-gray-300"
                     }`}
-                    onClick={() => setPaymentMethod("card")}
+                    onClick={() => setPaymentMethod("paystack")}
                   >
                     <CreditCard className="h-8 w-8 mb-2" />
-                    <span className="font-medium">Credit/Debit Card</span>
+                    <span className="font-medium">Paystack</span>
+                    <span className="text-xs text-gray-500 mt-1">Card, Bank, Mobile Money</span>
                   </button>
                   <button
                     type="button"
@@ -345,79 +405,33 @@ export default function CheckoutPage() {
                     onClick={() => setPaymentMethod("momo")}
                   >
                     <Smartphone className="h-8 w-8 mb-2" />
-                    <span className="font-medium">Mobile Money</span>
+                    <span className="font-medium">Direct Mobile Money</span>
+                    <span className="text-xs text-gray-500 mt-1">MTN, Vodafone, AirtelTigo</span>
                   </button>
                 </div>
               </div>
 
               <form onSubmit={handlePaymentSubmit} className="space-y-4">
-                {paymentMethod === "card" ? (
-                  <>
-                    <div>
-                      <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                        Card Number
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          id="cardNumber"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-300"
-                          placeholder="1234 5678 9012 3456"
-                          value={paymentInfo.cardNumber}
-                          onChange={(e) => setPaymentInfo({ ...paymentInfo, cardNumber: e.target.value })}
-                          required
-                        />
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <CreditCard className="h-5 w-5 text-gray-400" />
-                        </div>
-                      </div>
+                {paymentMethod === "paystack" ? (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-blue-900 mb-2">Paystack Payment</h4>
+                    <p className="text-sm text-blue-800 mb-3">
+                      You will be redirected to Paystack's secure payment page where you can pay with:
+                    </p>
+                    <ul className="text-sm text-blue-700 space-y-1">
+                      <li>• Credit/Debit Cards (Visa, Mastercard)</li>
+                      <li>• Bank Transfer</li>
+                      <li>• Mobile Money (MTN, Vodafone, AirtelTigo)</li>
+                      <li>• USSD Banking</li>
+                      <li>• QR Code</li>
+                    </ul>
+                    <div className="mt-3 p-3 bg-green-100 rounded border-l-4 border-green-500">
+                      <p className="text-sm text-green-800">
+                        <strong>Secure:</strong> Your payment information is protected by Paystack's bank-level
+                        security.
+                      </p>
                     </div>
-
-                    <div>
-                      <label htmlFor="cardName" className="block text-sm font-medium text-gray-700 mb-1">
-                        Name on Card
-                      </label>
-                      <input
-                        type="text"
-                        id="cardName"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-300"
-                        value={paymentInfo.cardName}
-                        onChange={(e) => setPaymentInfo({ ...paymentInfo, cardName: e.target.value })}
-                        required
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="expiry" className="block text-sm font-medium text-gray-700 mb-1">
-                          Expiry Date
-                        </label>
-                        <input
-                          type="text"
-                          id="expiry"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-300"
-                          placeholder="MM/YY"
-                          value={paymentInfo.expiry}
-                          onChange={(e) => setPaymentInfo({ ...paymentInfo, expiry: e.target.value })}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="cvv" className="block text-sm font-medium text-gray-700 mb-1">
-                          CVV
-                        </label>
-                        <input
-                          type="text"
-                          id="cvv"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-300"
-                          placeholder="123"
-                          value={paymentInfo.cvv}
-                          onChange={(e) => setPaymentInfo({ ...paymentInfo, cvv: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  </>
+                  </div>
                 ) : (
                   <>
                     <div>
@@ -479,10 +493,10 @@ export default function CheckoutPage() {
                 <div className="pt-4">
                   <button
                     type="submit"
-                    disabled={isProcessing}
+                    disabled={isProcessing || paystackLoading}
                     className="w-full py-3 bg-gradient-to-r from-rose-400 to-purple-500 text-white rounded-lg font-medium hover:from-rose-500 hover:to-purple-600 transition-colors disabled:opacity-70"
                   >
-                    {isProcessing ? "Processing..." : `Pay ₵${totalAmount.toFixed(2)}`}
+                    {isProcessing || paystackLoading ? "Processing..." : `Pay ₵${totalAmount.toFixed(2)}`}
                   </button>
                 </div>
               </form>
@@ -497,8 +511,8 @@ export default function CheckoutPage() {
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check className="h-8 w-8 text-green-500" />
               </div>
-              <h1 className="text-2xl font-bold mb-2">Order Confirmed!</h1>
-              <p className="text-gray-600 mb-2">Your order #{orderId} has been placed successfully.</p>
+              <h1 className="text-2xl font-bold mb-2">Payment Successful!</h1>
+              <p className="text-gray-600 mb-2">Your order #{orderId} has been confirmed and paid.</p>
               <p className="text-sm text-gray-500 mb-6">📧 A confirmation email has been sent to {user?.email}</p>
 
               <div className="bg-gray-50 rounded-lg p-4 mb-6">
