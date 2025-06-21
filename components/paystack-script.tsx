@@ -12,9 +12,8 @@ export function PaystackScript() {
 
     return () => {
       // Cleanup script on unmount
-      const existingScript = document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]')
-      if (existingScript) {
-        document.head.removeChild(existingScript)
+      if (document.head.contains(script)) {
+        document.head.removeChild(script)
       }
     }
   }, [])

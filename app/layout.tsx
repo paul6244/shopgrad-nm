@@ -6,6 +6,8 @@ import { CartProvider } from "@/hooks/use-cart"
 import { AuthProvider } from "@/hooks/use-auth"
 import { FavoritesProvider } from "@/hooks/use-favorites"
 import { EmailNotificationProvider } from "@/hooks/use-email-notifications"
+import { PaystackScript } from "@/components/paystack-script"
+import { Toaster } from "@/components/ui/sonner"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -26,7 +28,11 @@ export default function RootLayout({
         <AuthProvider>
           <EmailNotificationProvider>
             <FavoritesProvider>
-              <CartProvider>{children}</CartProvider>
+              <CartProvider>
+                {children}
+                <PaystackScript />
+                <Toaster />
+              </CartProvider>
             </FavoritesProvider>
           </EmailNotificationProvider>
         </AuthProvider>

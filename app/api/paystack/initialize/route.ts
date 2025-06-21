@@ -48,8 +48,28 @@ export async function POST(request: NextRequest) {
 
     // Check for Paystack secret key
     const secretKey = process.env.PAYSTACK_SECRET_KEY
-    if (!secretKey || secretKey === "sk_test_default") {
-      console.log("Paystack secret key not configured")
+    console.log("Secret key exists:", !!secretKey)
+    console.log("Secret key starts with sk_:", secretKey?.startsWith("sk_"))
+
+    if (!secretKey || secretKey === "sk_test_default" || !secretKey.startsWith("sk_")) {
+      console.log("Paystack secret key not properly configured:", secretKey?.substring(0, 10) + "...")
+
+      // For development, provide a helpful error message
+      if (process.env.NODE_ENV === "development") {
+        return NextResponse.json(
+          {
+            status: false,
+            message: "Paystack secret key not configured. Please add PAYSTACK_SECRET_KEY to your .env.local file.",
+            debug: {
+              hasSecretKey: !!secretKey,
+              keyPrefix: secretKey?.substring(0, 7),
+              nodeEnv: process.env.NODE_ENV,
+            },
+          },
+          { status: 500 },
+        )
+      }
+
       return NextResponse.json(
         {
           status: false,
@@ -95,10 +115,21 @@ export async function POST(request: NextRequest) {
     if (!paystackResponse.ok) {
       const errorText = await paystackResponse.text()
       console.error("Paystack API error:", errorText)
+
+      // Try to parse error response
+      let errorMessage = `Payment service error: ${paystackResponse.status}`
+      try {
+        const errorJson = JSON.parse(errorText)
+        errorMessage = errorJson.message || errorMessage
+      } catch (e) {
+        // Keep default error message
+      }
+
       return NextResponse.json(
         {
           status: false,
-          message: `Payment service error: ${paystackResponse.status}`,
+          message: errorMessage,
+          debug: process.env.NODE_ENV === "development" ? { paystackError: errorText } : undefined,
         },
         { status: 500 },
       )

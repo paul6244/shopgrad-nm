@@ -16,6 +16,11 @@ type CheckoutStep = "shipping" | "payment" | "confirmation"
 type PaymentMethod = "paystack" | "momo"
 
 export default function CheckoutPage() {
+  // Check if Paystack is properly configured
+  const isPaystackConfigured =
+    process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY &&
+    process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY !== "pk_test_default" &&
+    process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY.startsWith("pk_")
   const [currentStep, setCurrentStep] = useState<CheckoutStep>("shipping")
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("paystack")
   const [shippingInfo, setShippingInfo] = useState({
@@ -237,6 +242,43 @@ export default function CheckoutPage() {
           </div>
         )}
 
+        {/* Configuration Warning */}
+        {!isPaystackConfigured && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-start">
+              <AlertCircle className="h-5 w-5 text-yellow-500 mr-3 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-yellow-800">Paystack Configuration Required</h3>
+                <div className="mt-2 text-sm text-yellow-700">
+                  <p className="mb-2">To process real payments, you need to configure your Paystack API keys:</p>
+                  <ol className="list-decimal list-inside space-y-1 ml-4">
+                    <li>
+                      Get your API keys from{" "}
+                      <a
+                        href="https://dashboard.paystack.com/#/settings/developer"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Paystack Dashboard
+                      </a>
+                    </li>
+                    <li>
+                      Add them to your <code className="bg-yellow-100 px-1 rounded">.env.local</code> file:
+                    </li>
+                  </ol>
+                  <div className="mt-2 bg-yellow-100 p-2 rounded text-xs font-mono">
+                    NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_test_your_key_here
+                    <br />
+                    PAYSTACK_SECRET_KEY=sk_test_your_key_here
+                  </div>
+                  <p className="mt-2">For now, you can test with the "Direct Mobile Money" option.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Checkout Steps */}
         {currentStep !== "confirmation" && (
           <div className="flex justify-between mb-8 px-4">
@@ -408,22 +450,6 @@ export default function CheckoutPage() {
             <div className="p-6">
               <h1 className="text-2xl font-bold mb-6">Payment Information</h1>
 
-              {/* Configuration Warning */}
-              {(!process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
-                process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY === "pk_test_default") && (
-                <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <AlertCircle className="h-5 w-5 text-yellow-500 mr-2" />
-                    <div>
-                      <h3 className="text-sm font-medium text-yellow-800">Configuration Required</h3>
-                      <p className="text-sm text-yellow-700 mt-1">
-                        Paystack keys need to be configured in environment variables to process payments.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Payment Method Selection */}
               <div className="mb-6">
                 <h3 className="text-lg font-medium mb-4">Choose Payment Method</h3>
@@ -432,12 +458,14 @@ export default function CheckoutPage() {
                     type="button"
                     className={`p-4 border-2 rounded-lg flex flex-col items-center ${
                       paymentMethod === "paystack" ? "border-rose-500 bg-rose-50" : "border-gray-300"
-                    }`}
+                    } ${!isPaystackConfigured ? "opacity-50" : ""}`}
                     onClick={() => setPaymentMethod("paystack")}
+                    disabled={!isPaystackConfigured}
                   >
                     <CreditCard className="h-8 w-8 mb-2" />
                     <span className="font-medium">Paystack</span>
                     <span className="text-xs text-gray-500 mt-1">Card, Bank, Mobile Money</span>
+                    {!isPaystackConfigured && <span className="text-xs text-red-500 mt-1">Requires Configuration</span>}
                   </button>
                   <button
                     type="button"
@@ -449,6 +477,7 @@ export default function CheckoutPage() {
                     <Smartphone className="h-8 w-8 mb-2" />
                     <span className="font-medium">Direct Mobile Money</span>
                     <span className="text-xs text-gray-500 mt-1">MTN, Vodafone, AirtelTigo</span>
+                    <span className="text-xs text-green-600 mt-1">Available for Testing</span>
                   </button>
                 </div>
               </div>
@@ -531,8 +560,8 @@ export default function CheckoutPage() {
 
                     <div className="bg-blue-50 p-4 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> You will receive a prompt on your phone to authorize the payment of ₵
-                        {totalAmount.toFixed(2)}.
+                        <strong>Demo Mode:</strong> This will simulate a mobile money payment of ₵
+                        {totalAmount.toFixed(2)} for testing purposes.
                       </p>
                     </div>
                   </>
@@ -541,7 +570,9 @@ export default function CheckoutPage() {
                 <div className="pt-4">
                   <button
                     type="submit"
-                    disabled={isProcessing || paystackLoading}
+                    disabled={
+                      isProcessing || paystackLoading || (paymentMethod === "paystack" && !isPaystackConfigured)
+                    }
                     className="w-full py-3 bg-gradient-to-r from-rose-400 to-purple-500 text-white rounded-lg font-medium hover:from-rose-500 hover:to-purple-600 transition-colors disabled:opacity-70"
                   >
                     {isProcessing || paystackLoading ? "Processing..." : `Pay ₵${totalAmount.toFixed(2)}`}
