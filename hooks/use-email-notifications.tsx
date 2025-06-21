@@ -1,77 +1,102 @@
 "use client"
 
-import { createContext, useContext, type ReactNode } from "react"
+import type React from "react"
+import { createContext, useContext, useCallback } from "react"
+import { toast } from "sonner"
 
 interface EmailNotificationContextType {
   sendOrderConfirmation: (orderData: any) => Promise<void>
   sendOrderStatusUpdate: (orderData: any) => Promise<void>
   sendShippingNotification: (orderData: any) => Promise<void>
-  sendDeliveryNotification: (orderData: any) => Promise<void>
+  sendDeliveryConfirmation: (orderData: any) => Promise<void>
 }
 
 const EmailNotificationContext = createContext<EmailNotificationContextType | undefined>(undefined)
 
-export function EmailNotificationProvider({ children }: { children: ReactNode }) {
-  // Simulate email sending (in a real app, this would call your email service)
-  const simulateEmailSend = async (emailType: string, data: any) => {
-    console.log(`📧 Sending ${emailType} email:`, data)
+export function EmailNotificationProvider({ children }: { children: React.ReactNode }) {
+  const sendOrderConfirmation = useCallback(async (orderData: any) => {
+    try {
+      // Simulate email sending
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    // Show browser notification to simulate email
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(`ShopGrad - ${emailType}`, {
-        body: `Email sent for order #${data.orderId}`,
-        icon: "/favicon.ico",
-      })
+      // Show browser notification as demo
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Order Confirmed!", {
+          body: `Your order #${orderData.id} has been confirmed. Total: ₵${orderData.total}`,
+          icon: "/placeholder-logo.png",
+        })
+      }
+
+      toast.success("Order confirmation email sent!")
+      console.log("Order confirmation email sent:", orderData)
+    } catch (error) {
+      console.error("Failed to send order confirmation email:", error)
+      toast.error("Failed to send confirmation email")
     }
+  }, [])
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+  const sendOrderStatusUpdate = useCallback(async (orderData: any) => {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Order Status Updated", {
+          body: `Your order #${orderData.id} is now ${orderData.status}`,
+          icon: "/placeholder-logo.png",
+        })
+      }
+
+      toast.success("Order status email sent!")
+      console.log("Order status update email sent:", orderData)
+    } catch (error) {
+      console.error("Failed to send order status email:", error)
+    }
+  }, [])
+
+  const sendShippingNotification = useCallback(async (orderData: any) => {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Order Shipped!", {
+          body: `Your order #${orderData.id} has been shipped. Tracking: ${orderData.trackingNumber}`,
+          icon: "/placeholder-logo.png",
+        })
+      }
+
+      toast.success("Shipping notification email sent!")
+      console.log("Shipping notification email sent:", orderData)
+    } catch (error) {
+      console.error("Failed to send shipping notification:", error)
+    }
+  }, [])
+
+  const sendDeliveryConfirmation = useCallback(async (orderData: any) => {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Order Delivered!", {
+          body: `Your order #${orderData.id} has been delivered successfully!`,
+          icon: "/placeholder-logo.png",
+        })
+      }
+
+      toast.success("Delivery confirmation email sent!")
+      console.log("Delivery confirmation email sent:", orderData)
+    } catch (error) {
+      console.error("Failed to send delivery confirmation:", error)
+    }
+  }, [])
+
+  const value = {
+    sendOrderConfirmation,
+    sendOrderStatusUpdate,
+    sendShippingNotification,
+    sendDeliveryConfirmation,
   }
 
-  const sendOrderConfirmation = async (orderData: any) => {
-    await simulateEmailSend("Order Confirmation", {
-      orderId: orderData.id,
-      customerEmail: orderData.customerEmail,
-      total: orderData.total,
-      items: orderData.items,
-    })
-  }
-
-  const sendOrderStatusUpdate = async (orderData: any) => {
-    await simulateEmailSend("Order Status Update", {
-      orderId: orderData.id,
-      status: orderData.status,
-      customerEmail: orderData.customerEmail,
-    })
-  }
-
-  const sendShippingNotification = async (orderData: any) => {
-    await simulateEmailSend("Shipping Notification", {
-      orderId: orderData.id,
-      trackingNumber: orderData.trackingNumber,
-      customerEmail: orderData.customerEmail,
-    })
-  }
-
-  const sendDeliveryNotification = async (orderData: any) => {
-    await simulateEmailSend("Delivery Notification", {
-      orderId: orderData.id,
-      customerEmail: orderData.customerEmail,
-    })
-  }
-
-  return (
-    <EmailNotificationContext.Provider
-      value={{
-        sendOrderConfirmation,
-        sendOrderStatusUpdate,
-        sendShippingNotification,
-        sendDeliveryNotification,
-      }}
-    >
-      {children}
-    </EmailNotificationContext.Provider>
-  )
+  return <EmailNotificationContext.Provider value={value}>{children}</EmailNotificationContext.Provider>
 }
 
 export function useEmailNotifications() {

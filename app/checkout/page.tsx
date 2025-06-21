@@ -5,7 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, CreditCard, Truck, Check, Smartphone } from "lucide-react"
+import { ArrowLeft, CreditCard, Truck, Check, Smartphone, AlertCircle } from "lucide-react"
 import { useCart } from "@/hooks/use-cart"
 import { useAuth } from "@/hooks/use-auth"
 import { useEmailNotifications } from "@/hooks/use-email-notifications"
@@ -34,43 +34,14 @@ export default function CheckoutPage() {
   })
   const [isProcessing, setIsProcessing] = useState(false)
   const [orderId, setOrderId] = useState("")
+  const [paymentError, setPaymentError] = useState<string | null>(null)
 
   const { cartItems, cartTotal, clearCart } = useCart()
   const { user } = useAuth()
   const { sendOrderConfirmation } = useEmailNotifications()
   const router = useRouter()
 
-  const {
-    initializePayment,
-    verifyPayment,
-    isLoading: paystackLoading,
-  } = usePaystack({
-    onSuccess: async (reference) => {
-      try {
-        // Verify payment
-        const verification = await verifyPayment(reference)
-
-        if (verification.status && verification.data.status === "success") {
-          await handlePaymentSuccess(reference)
-        } else {
-          alert("Payment verification failed. Please contact support.")
-          setIsProcessing(false)
-        }
-      } catch (error) {
-        console.error("Payment verification error:", error)
-        alert("Payment verification failed. Please contact support.")
-        setIsProcessing(false)
-      }
-    },
-    onError: (error) => {
-      console.error("Payment error:", error)
-      alert(`Payment failed: ${error}`)
-      setIsProcessing(false)
-    },
-    onClose: () => {
-      setIsProcessing(false)
-    },
-  })
+  const { initializePayment, verifyPayment, isLoading: paystackLoading } = usePaystack()
 
   const handlePaymentSuccess = async (paymentReference: string) => {
     const newOrderId = `ORD-${Math.floor(100000 + Math.random() * 900000)}`
@@ -136,34 +107,76 @@ export default function CheckoutPage() {
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsProcessing(true)
+    setPaymentError(null)
 
     // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission()
     }
 
-    if (paymentMethod === "paystack") {
-      // Use Paystack payment
-      await initializePayment({
-        email: user?.email || shippingInfo.fullName.toLowerCase().replace(/\s+/g, "") + "@example.com",
-        amount: totalAmount,
-        currency: "GHS",
-        metadata: {
-          orderId: `ORD-${Date.now()}`,
+    try {
+      if (paymentMethod === "paystack") {
+        // Generate a customer email if user doesn't have one
+        const customerEmail = user?.email || `${shippingInfo.fullName.toLowerCase().replace(/\s+/g, "")}@shopgrad.com`
+
+        console.log("Starting Paystack payment for:", {
+          email: customerEmail,
+          amount: totalAmount,
           customerName: shippingInfo.fullName,
-          customerPhone: shippingInfo.phone,
-          items: cartItems.map((item) => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price,
-          })),
-        },
-      })
-    } else {
-      // Simulate mobile money payment
-      setTimeout(async () => {
-        await handlePaymentSuccess(`MOMO-${Date.now()}`)
-      }, 2000)
+        })
+
+        await initializePayment({
+          email: customerEmail,
+          amount: totalAmount,
+          metadata: {
+            orderId: `ORD-${Date.now()}`,
+            customerName: shippingInfo.fullName,
+            customerPhone: shippingInfo.phone,
+            items: cartItems.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+          },
+          onSuccess: async (reference) => {
+            console.log("Payment success callback triggered:", reference)
+            try {
+              // Verify payment
+              const verification = await verifyPayment(reference)
+              console.log("Payment verification result:", verification)
+
+              if (verification.status && verification.data?.status === "success") {
+                await handlePaymentSuccess(reference)
+              } else {
+                setPaymentError("Payment verification failed. Please contact support.")
+                setIsProcessing(false)
+              }
+            } catch (error) {
+              console.error("Payment verification error:", error)
+              setPaymentError("Payment verification failed. Please contact support.")
+              setIsProcessing(false)
+            }
+          },
+          onError: (error) => {
+            console.error("Payment error:", error)
+            setPaymentError(`Payment failed: ${error}`)
+            setIsProcessing(false)
+          },
+          onClose: () => {
+            console.log("Payment popup closed")
+            setIsProcessing(false)
+          },
+        })
+      } else {
+        // Simulate mobile money payment
+        setTimeout(async () => {
+          await handlePaymentSuccess(`MOMO-${Date.now()}`)
+        }, 2000)
+      }
+    } catch (error) {
+      console.error("Payment submission error:", error)
+      setPaymentError(error instanceof Error ? error.message : "Failed to process payment. Please try again.")
+      setIsProcessing(false)
     }
   }
 
@@ -211,6 +224,19 @@ export default function CheckoutPage() {
       </div>
 
       <main className="flex-1 container mx-auto px-4 py-6">
+        {/* Error Display */}
+        {paymentError && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+              <div>
+                <h3 className="text-sm font-medium text-red-800">Payment Error</h3>
+                <p className="text-sm text-red-700 mt-1">{paymentError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Checkout Steps */}
         {currentStep !== "confirmation" && (
           <div className="flex justify-between mb-8 px-4">
@@ -382,6 +408,22 @@ export default function CheckoutPage() {
             <div className="p-6">
               <h1 className="text-2xl font-bold mb-6">Payment Information</h1>
 
+              {/* Configuration Warning */}
+              {(!process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ||
+                process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY === "pk_test_default") && (
+                <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-yellow-500 mr-2" />
+                    <div>
+                      <h3 className="text-sm font-medium text-yellow-800">Configuration Required</h3>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        Paystack keys need to be configured in environment variables to process payments.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Payment Method Selection */}
               <div className="mb-6">
                 <h3 className="text-lg font-medium mb-4">Choose Payment Method</h3>
@@ -429,6 +471,12 @@ export default function CheckoutPage() {
                       <p className="text-sm text-green-800">
                         <strong>Secure:</strong> Your payment information is protected by Paystack's bank-level
                         security.
+                      </p>
+                    </div>
+                    <div className="mt-3 p-3 bg-gray-100 rounded">
+                      <p className="text-sm text-gray-700">
+                        <strong>Test Card:</strong> Use 4084084084084081 with any future expiry date and CVV 123 for
+                        testing.
                       </p>
                     </div>
                   </div>

@@ -1,105 +1,164 @@
 "use client"
 
-import { useState } from "react"
-import { paystackService } from "@/lib/paystack"
-import type { PaystackInitializeData } from "@/lib/paystack"
+import { useState, useCallback } from "react"
 
-interface UsePaystackProps {
+interface PaystackPaymentData {
+  email: string
+  amount: number
+  reference?: string
+  metadata?: Record<string, any>
   onSuccess?: (reference: string) => void
   onError?: (error: string) => void
   onClose?: () => void
 }
 
-interface PaystackPopupOptions {
-  key: string
-  email: string
-  amount: number
-  currency?: string
-  ref: string
-  metadata?: Record<string, any>
-  callback: (response: { reference: string }) => void
-  onClose: () => void
-}
-
 declare global {
   interface Window {
     PaystackPop: {
-      setup: (options: PaystackPopupOptions) => {
+      setup: (options: any) => {
         openIframe: () => void
       }
     }
   }
 }
 
-export function usePaystack({ onSuccess, onError, onClose }: UsePaystackProps = {}) {
+export function usePaystack() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const initializePayment = async (paymentData: PaystackInitializeData) => {
+  const initializePayment = useCallback(async (paymentData: PaystackPaymentData) => {
     setIsLoading(true)
     setError(null)
 
     try {
-      // Generate reference if not provided
-      const reference = paymentData.reference || paystackService.generateReference()
+      console.log("Initializing payment with data:", paymentData)
 
-      // Convert amount to kobo
-      const amountInKobo = paystackService.convertToKobo(paymentData.amount)
-
-      // Check if Paystack script is loaded
-      if (typeof window !== "undefined" && window.PaystackPop) {
-        // Use Paystack Popup
-        const popup = window.PaystackPop.setup({
-          key: paystackService.getPublicKey(),
+      const response = await fetch("/api/paystack/initialize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           email: paymentData.email,
-          amount: amountInKobo,
-          currency: paymentData.currency || "GHS",
-          ref: reference,
+          amount: paymentData.amount,
+          metadata: paymentData.metadata,
+          reference: paymentData.reference,
+        }),
+      })
+
+      console.log("API response status:", response.status)
+
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("API error response:", errorText)
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      // Check content type
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text()
+        console.error("Non-JSON response:", text)
+        throw new Error("Server returned non-JSON response")
+      }
+
+      const result = await response.json()
+      console.log("API response data:", result)
+
+      if (!result.status) {
+        throw new Error(result.message || "Failed to initialize payment")
+      }
+
+      // Check if we have Paystack popup available
+      const publicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
+
+      if (!publicKey || publicKey === "pk_test_default") {
+        throw new Error("Paystack public key not configured")
+      }
+
+      // Use Paystack Popup if available
+      if (typeof window !== "undefined" && window.PaystackPop) {
+        console.log("Using Paystack popup")
+        const handler = window.PaystackPop.setup({
+          key: publicKey,
+          email: paymentData.email,
+          amount: Math.round(paymentData.amount * 100), // Convert to pesewas
+          currency: "GHS",
+          reference: result.data.reference,
           metadata: paymentData.metadata || {},
-          callback: (response) => {
+          callback: (response: any) => {
+            console.log("Payment successful:", response)
             setIsLoading(false)
-            onSuccess?.(response.reference)
+            paymentData.onSuccess?.(response.reference)
           },
           onClose: () => {
+            console.log("Payment popup closed")
             setIsLoading(false)
-            onClose?.()
+            paymentData.onClose?.()
           },
         })
 
-        popup.openIframe()
+        handler.openIframe()
       } else {
-        // Fallback to redirect method
-        const response = await paystackService.initializePayment({
-          ...paymentData,
-          reference,
-          amount: amountInKobo,
-        })
-
-        if (response.status) {
-          // Redirect to Paystack payment page
-          window.location.href = response.data.authorization_url
+        // Fallback to redirect
+        console.log("Using redirect method")
+        if (result.data?.authorization_url) {
+          window.location.href = result.data.authorization_url
         } else {
-          throw new Error(response.message || "Failed to initialize payment")
+          throw new Error("No authorization URL received")
         }
       }
+
+      return result
     } catch (err) {
+      console.error("Payment initialization error:", err)
       setIsLoading(false)
       const errorMessage = err instanceof Error ? err.message : "Payment initialization failed"
       setError(errorMessage)
-      onError?.(errorMessage)
+      paymentData.onError?.(errorMessage)
+      throw err
     }
-  }
+  }, [])
 
-  const verifyPayment = async (reference: string) => {
+  const verifyPayment = useCallback(async (reference: string) => {
     try {
-      const response = await paystackService.verifyPayment(reference)
-      return response
+      console.log("Verifying payment:", reference)
+
+      const response = await fetch("/api/paystack/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reference }),
+      })
+
+      console.log("Verify response status:", response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Verify error response:", errorText)
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text()
+        console.error("Non-JSON response:", text)
+        throw new Error("Server returned non-JSON response")
+      }
+
+      const result = await response.json()
+      console.log("Verify response data:", result)
+
+      return result
     } catch (err) {
+      console.error("Payment verification error:", err)
       const errorMessage = err instanceof Error ? err.message : "Payment verification failed"
       setError(errorMessage)
       throw new Error(errorMessage)
     }
-  }
+  }, [])
 
   return {
     initializePayment,

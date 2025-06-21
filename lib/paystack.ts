@@ -6,7 +6,7 @@ interface PaystackConfig {
 
 interface PaystackInitializeData {
   email: string
-  amount: number // in kobo (smallest currency unit)
+  amount: number // in pesewas (smallest currency unit for GHS)
   currency?: string
   reference?: string
   callback_url?: string
@@ -17,7 +17,7 @@ interface PaystackInitializeData {
 interface PaystackResponse {
   status: boolean
   message: string
-  data: {
+  data?: {
     authorization_url: string
     access_code: string
     reference: string
@@ -27,7 +27,7 @@ interface PaystackResponse {
 interface PaystackVerifyResponse {
   status: boolean
   message: string
-  data: {
+  data?: {
     id: number
     domain: string
     status: string
@@ -39,46 +39,11 @@ interface PaystackVerifyResponse {
     created_at: string
     channel: string
     currency: string
-    ip_address: string
-    metadata: Record<string, any>
-    log: any
-    fees: number
-    fees_split: any
-    authorization: {
-      authorization_code: string
-      bin: string
-      last4: string
-      exp_month: string
-      exp_year: string
-      channel: string
-      card_type: string
-      bank: string
-      country_code: string
-      brand: string
-      reusable: boolean
-      signature: string
-      account_name: string | null
-    }
     customer: {
       id: number
-      first_name: string | null
-      last_name: string | null
       email: string
       customer_code: string
-      phone: string | null
-      metadata: Record<string, any>
-      risk_action: string
-      international_format_phone: string | null
     }
-    plan: any
-    split: any
-    order_id: any
-    paidAt: string
-    createdAt: string
-    requested_amount: number
-    pos_transaction_data: any
-    source: any
-    fees_breakdown: any
   }
 }
 
@@ -87,8 +52,8 @@ class PaystackService {
 
   constructor() {
     this.config = {
-      publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_your_public_key_here",
-      secretKey: process.env.PAYSTACK_SECRET_KEY || "sk_test_your_secret_key_here",
+      publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_default",
+      secretKey: process.env.PAYSTACK_SECRET_KEY || "sk_test_default",
       baseUrl: "https://api.paystack.co",
     }
   }
@@ -96,6 +61,10 @@ class PaystackService {
   // Initialize payment transaction
   async initializePayment(data: PaystackInitializeData): Promise<PaystackResponse> {
     try {
+      if (!this.config.secretKey || this.config.secretKey === "sk_test_default") {
+        throw new Error("Paystack secret key not configured")
+      }
+
       const response = await fetch(`${this.config.baseUrl}/transaction/initialize`, {
         method: "POST",
         headers: {
@@ -109,17 +78,30 @@ class PaystackService {
         }),
       })
 
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack API error:", errorText)
+        throw new Error(`Paystack API error: ${response.status}`)
+      }
+
       const result = await response.json()
       return result
     } catch (error) {
       console.error("Paystack initialization error:", error)
-      throw new Error("Failed to initialize payment")
+      return {
+        status: false,
+        message: error instanceof Error ? error.message : "Failed to initialize payment",
+      }
     }
   }
 
   // Verify payment transaction
   async verifyPayment(reference: string): Promise<PaystackVerifyResponse> {
     try {
+      if (!this.config.secretKey || this.config.secretKey === "sk_test_default") {
+        throw new Error("Paystack secret key not configured")
+      }
+
       const response = await fetch(`${this.config.baseUrl}/transaction/verify/${reference}`, {
         method: "GET",
         headers: {
@@ -128,28 +110,37 @@ class PaystackService {
         },
       })
 
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack verification error:", errorText)
+        throw new Error(`Paystack verification error: ${response.status}`)
+      }
+
       const result = await response.json()
       return result
     } catch (error) {
       console.error("Paystack verification error:", error)
-      throw new Error("Failed to verify payment")
+      return {
+        status: false,
+        message: error instanceof Error ? error.message : "Failed to verify payment",
+      }
     }
   }
 
   // Generate payment reference
   generateReference(): string {
     const timestamp = Date.now()
-    const random = Math.floor(Math.random() * 1000)
+    const random = Math.floor(Math.random() * 1000000)
     return `SHOPGRAD_${timestamp}_${random}`
   }
 
-  // Convert amount to kobo (Paystack uses kobo for GHS)
-  convertToKobo(amount: number): number {
+  // Convert amount to pesewas (Paystack uses pesewas for GHS)
+  convertToPesewas(amount: number): number {
     return Math.round(amount * 100)
   }
 
-  // Convert amount from kobo to cedis
-  convertFromKobo(amount: number): number {
+  // Convert amount from pesewas to cedis
+  convertFromPesewas(amount: number): number {
     return amount / 100
   }
 
