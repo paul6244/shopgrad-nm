@@ -13,42 +13,42 @@ const categories = [
     name: "Electronics",
     image: "https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=500&h=300&fit=crop&q=80",
     description: "Latest gadgets and tech",
-    itemCount: 20,
+    itemCount: 200,
   },
   {
     id: "fashion",
     name: "Fashion",
     image: "https://images.unsplash.com/photo-1445205170230-053b83016050?w=500&h=300&fit=crop&q=80",
     description: "Clothing, accessories, and more",
-    itemCount: 25,
+    itemCount: 250,
   },
   {
     id: "home",
     name: "Home",
     image: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&h=300&fit=crop&q=80",
     description: "Furniture and home decor",
-    itemCount: 20,
+    itemCount: 200,
   },
   {
     id: "fitness",
     name: "Fitness",
     image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=500&h=300&fit=crop&q=80",
     description: "Equipment and workout gear",
-    itemCount: 15,
+    itemCount: 150,
   },
   {
     id: "beauty",
     name: "Beauty",
     image: "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=500&h=300&fit=crop&q=80",
     description: "Skincare and cosmetics",
-    itemCount: 15,
+    itemCount: 100,
   },
   {
     id: "books",
     name: "Books",
     image: "https://images.unsplash.com/photo-1495446815901-a7297e633e8d?w=500&h=300&fit=crop&q=80",
     description: "Books and magazines",
-    itemCount: 10,
+    itemCount: 100,
   },
 ]
 
@@ -60,8 +60,8 @@ export default function CategoriesPage() {
     category.name.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleCategoryClick = (categoryId: string) => {
-    router.push(`/?category=${categoryId}`)
+  const handleCategoryClick = (categoryName: string) => {
+    router.push(`/?category=${categoryName}`)
   }
 
   return (
@@ -97,7 +97,7 @@ export default function CategoriesPage() {
             <div
               key={category.id}
               className="bg-white rounded-xl overflow-hidden shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
-              onClick={() => handleCategoryClick(category.id)}
+              onClick={() => handleCategoryClick(category.name)}
             >
               <div className="relative h-40">
                 <Image
