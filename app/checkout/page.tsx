@@ -5,7 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, CreditCard, Truck, Check, Smartphone, AlertCircle } from "lucide-react"
+import { ArrowLeft, CreditCard, Truck, Check, Smartphone, AlertCircle, Info } from "lucide-react"
 import { useCart } from "@/hooks/use-cart"
 import { useAuth } from "@/hooks/use-auth"
 import { useEmailNotifications } from "@/hooks/use-email-notifications"
@@ -21,6 +21,7 @@ export default function CheckoutPage() {
     process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY &&
     process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY !== "pk_test_default" &&
     process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY.startsWith("pk_")
+
   const [currentStep, setCurrentStep] = useState<CheckoutStep>("shipping")
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("paystack")
   const [shippingInfo, setShippingInfo] = useState({
@@ -40,6 +41,7 @@ export default function CheckoutPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [orderId, setOrderId] = useState("")
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
 
   const { cartItems, cartTotal, clearCart } = useCart()
   const { user } = useAuth()
@@ -100,6 +102,8 @@ export default function CheckoutPage() {
     setCurrentStep("confirmation")
     clearCart()
     setIsProcessing(false)
+    setPaymentError(null)
+    setDebugInfo(null)
     window.scrollTo(0, 0)
   }
 
@@ -113,6 +117,7 @@ export default function CheckoutPage() {
     e.preventDefault()
     setIsProcessing(true)
     setPaymentError(null)
+    setDebugInfo(null)
 
     // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
@@ -180,7 +185,19 @@ export default function CheckoutPage() {
       }
     } catch (error) {
       console.error("Payment submission error:", error)
-      setPaymentError(error instanceof Error ? error.message : "Failed to process payment. Please try again.")
+      const errorMessage = error instanceof Error ? error.message : "Failed to process payment. Please try again."
+      setPaymentError(errorMessage)
+
+      // Extract debug info if available
+      if (error instanceof Error && error.message.includes("HTTP")) {
+        setDebugInfo({
+          error: error.message,
+          timestamp: new Date().toISOString(),
+          paymentMethod,
+          amount: totalAmount,
+        })
+      }
+
       setIsProcessing(false)
     }
   }
@@ -232,11 +249,32 @@ export default function CheckoutPage() {
         {/* Error Display */}
         {paymentError && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-              <div>
+            <div className="flex items-start">
+              <AlertCircle className="h-5 w-5 text-red-500 mr-2 mt-0.5" />
+              <div className="flex-1">
                 <h3 className="text-sm font-medium text-red-800">Payment Error</h3>
                 <p className="text-sm text-red-700 mt-1">{paymentError}</p>
+
+                {debugInfo && (
+                  <details className="mt-3">
+                    <summary className="text-xs text-red-600 cursor-pointer hover:text-red-800">
+                      Show Debug Information
+                    </summary>
+                    <div className="mt-2 p-2 bg-red-100 rounded text-xs font-mono">
+                      <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+                    </div>
+                  </details>
+                )}
+
+                <div className="mt-3 text-xs text-red-600">
+                  <p>If this error persists:</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Check your internet connection</li>
+                    <li>Verify your payment details</li>
+                    <li>Try refreshing the page</li>
+                    <li>Contact support if the issue continues</li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>
@@ -246,7 +284,7 @@ export default function CheckoutPage() {
         {!isPaystackConfigured && (
           <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <div className="flex items-start">
-              <AlertCircle className="h-5 w-5 text-yellow-500 mr-3 mt-0.5" />
+              <Info className="h-5 w-5 text-yellow-500 mr-3 mt-0.5" />
               <div className="flex-1">
                 <h3 className="text-sm font-medium text-yellow-800">Paystack Configuration Required</h3>
                 <div className="mt-2 text-sm text-yellow-700">
@@ -268,9 +306,9 @@ export default function CheckoutPage() {
                     </li>
                   </ol>
                   <div className="mt-2 bg-yellow-100 p-2 rounded text-xs font-mono">
-                    NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_test_your_key_here
+                    NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_your_key_here
                     <br />
-                    PAYSTACK_SECRET_KEY=sk_test_your_key_here
+                    PAYSTACK_SECRET_KEY=sk_live_your_key_here
                   </div>
                   <p className="mt-2">For now, you can test with the "Direct Mobile Money" option.</p>
                 </div>
@@ -498,14 +536,14 @@ export default function CheckoutPage() {
                     </ul>
                     <div className="mt-3 p-3 bg-green-100 rounded border-l-4 border-green-500">
                       <p className="text-sm text-green-800">
-                        <strong>Secure:</strong> Your payment information is protected by Paystack's bank-level
-                        security.
+                        <strong>Live Mode:</strong> Real payments will be processed. Your customers will be charged
+                        actual money.
                       </p>
                     </div>
-                    <div className="mt-3 p-3 bg-gray-100 rounded">
-                      <p className="text-sm text-gray-700">
-                        <strong>Test Card:</strong> Use 4084084084084081 with any future expiry date and CVV 123 for
-                        testing.
+                    <div className="mt-3 p-3 bg-blue-100 rounded">
+                      <p className="text-sm text-blue-700">
+                        <strong>Secure Payments:</strong> All transactions are processed securely through Paystack's
+                        encrypted payment gateway.
                       </p>
                     </div>
                   </div>

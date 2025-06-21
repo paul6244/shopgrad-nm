@@ -47,23 +47,43 @@ export function usePaystack() {
       })
 
       console.log("API response status:", response.status)
+      console.log("API response headers:", Object.fromEntries(response.headers.entries()))
+
+      // Get response text first to handle both JSON and non-JSON responses
+      const responseText = await response.text()
+      console.log("API response text:", responseText)
 
       // Check if response is ok
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error("API error response:", errorText)
-        throw new Error(`HTTP error! status: ${response.status}`)
+        console.error("API error response:", responseText)
+
+        // Try to parse as JSON for structured error
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+
+          // Include debug info if available
+          if (errorData.debug) {
+            console.error("Debug info:", errorData.debug)
+          }
+        } catch (parseError) {
+          console.error("Failed to parse error response as JSON:", parseError)
+          errorMessage = responseText || errorMessage
+        }
+
+        throw new Error(errorMessage)
       }
 
-      // Check content type
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await response.text()
-        console.error("Non-JSON response:", text)
-        throw new Error("Server returned non-JSON response")
+      // Parse successful response
+      let result
+      try {
+        result = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error("Failed to parse success response as JSON:", parseError)
+        throw new Error("Server returned invalid JSON response")
       }
 
-      const result = await response.json()
       console.log("API response data:", result)
 
       if (!result.status) {
@@ -135,22 +155,34 @@ export function usePaystack() {
 
       console.log("Verify response status:", response.status)
 
+      // Get response text first
+      const responseText = await response.text()
+      console.log("Verify response text:", responseText)
+
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Verify error response:", errorText)
-        throw new Error(`HTTP error! status: ${response.status}`)
+        console.error("Verify error response:", responseText)
+
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const errorData = JSON.parse(responseText)
+          errorMessage = errorData.message || errorMessage
+        } catch (parseError) {
+          errorMessage = responseText || errorMessage
+        }
+
+        throw new Error(errorMessage)
       }
 
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await response.text()
-        console.error("Non-JSON response:", text)
-        throw new Error("Server returned non-JSON response")
+      // Parse successful response
+      let result
+      try {
+        result = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error("Failed to parse verify response as JSON:", parseError)
+        throw new Error("Server returned invalid JSON response")
       }
 
-      const result = await response.json()
       console.log("Verify response data:", result)
-
       return result
     } catch (err) {
       console.error("Payment verification error:", err)

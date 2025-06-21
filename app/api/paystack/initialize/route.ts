@@ -2,10 +2,23 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("Paystack initialize route called")
+    console.log("=== Paystack Initialize Route Called ===")
 
-    const body = await request.json()
-    console.log("Request body:", body)
+    // Parse request body
+    let body
+    try {
+      body = await request.json()
+      console.log("Request body parsed:", body)
+    } catch (parseError) {
+      console.error("Failed to parse request body:", parseError)
+      return NextResponse.json(
+        {
+          status: false,
+          message: "Invalid JSON in request body",
+        },
+        { status: 400 },
+      )
+    }
 
     const { email, amount, currency, metadata, callback_url } = body
 
@@ -48,32 +61,38 @@ export async function POST(request: NextRequest) {
 
     // Check for Paystack secret key
     const secretKey = process.env.PAYSTACK_SECRET_KEY
-    console.log("Secret key exists:", !!secretKey)
-    console.log("Secret key starts with sk_:", secretKey?.startsWith("sk_"))
+    console.log("Environment check:", {
+      hasSecretKey: !!secretKey,
+      keyPrefix: secretKey?.substring(0, 7),
+      nodeEnv: process.env.NODE_ENV,
+    })
 
-    if (!secretKey || secretKey === "sk_test_default" || !secretKey.startsWith("sk_")) {
-      console.log("Paystack secret key not properly configured:", secretKey?.substring(0, 10) + "...")
-
-      // For development, provide a helpful error message
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json(
-          {
-            status: false,
-            message: "Paystack secret key not configured. Please add PAYSTACK_SECRET_KEY to your .env.local file.",
-            debug: {
-              hasSecretKey: !!secretKey,
-              keyPrefix: secretKey?.substring(0, 7),
-              nodeEnv: process.env.NODE_ENV,
-            },
-          },
-          { status: 500 },
-        )
-      }
-
+    if (!secretKey || secretKey === "sk_test_default") {
+      console.log("Paystack secret key not configured")
       return NextResponse.json(
         {
           status: false,
-          message: "Payment service not configured. Please contact support.",
+          message: "Payment service not configured. Please add PAYSTACK_SECRET_KEY to environment variables.",
+          debug:
+            process.env.NODE_ENV === "development"
+              ? {
+                  hasSecretKey: !!secretKey,
+                  keyValue: secretKey?.substring(0, 10) + "...",
+                  allEnvKeys: Object.keys(process.env).filter((key) => key.includes("PAYSTACK")),
+                }
+              : undefined,
+        },
+        { status: 500 },
+      )
+    }
+
+    // Validate secret key format
+    if (!secretKey.startsWith("sk_")) {
+      console.log("Invalid secret key format")
+      return NextResponse.json(
+        {
+          status: false,
+          message: "Invalid Paystack secret key format",
         },
         { status: 500 },
       )
@@ -85,7 +104,7 @@ export async function POST(request: NextRequest) {
     // Convert amount to pesewas (multiply by 100 for GHS)
     const amountInPesewas = Math.round(amount * 100)
 
-    console.log("Initializing payment with:", {
+    console.log("Initializing payment with Paystack:", {
       email,
       amount: amountInPesewas,
       reference,
@@ -93,59 +112,120 @@ export async function POST(request: NextRequest) {
     })
 
     // Initialize payment with Paystack
-    const paystackResponse = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        amount: amountInPesewas,
-        currency: currency || "GHS",
-        reference,
-        metadata: metadata || {},
-        callback_url,
-        channels: ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer"],
-      }),
-    })
+    const paystackPayload = {
+      email,
+      amount: amountInPesewas,
+      currency: currency || "GHS",
+      reference,
+      metadata: metadata || {},
+      callback_url,
+      channels: ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer"],
+    }
+
+    console.log("Paystack API payload:", paystackPayload)
+
+    let paystackResponse
+    try {
+      paystackResponse = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(paystackPayload),
+      })
+    } catch (fetchError) {
+      console.error("Failed to fetch Paystack API:", fetchError)
+      return NextResponse.json(
+        {
+          status: false,
+          message: "Failed to connect to payment service",
+          debug:
+            process.env.NODE_ENV === "development"
+              ? {
+                  error: fetchError instanceof Error ? fetchError.message : "Unknown fetch error",
+                }
+              : undefined,
+        },
+        { status: 500 },
+      )
+    }
 
     console.log("Paystack response status:", paystackResponse.status)
+    console.log("Paystack response headers:", Object.fromEntries(paystackResponse.headers.entries()))
+
+    // Get Paystack response text
+    let paystackResponseText
+    try {
+      paystackResponseText = await paystackResponse.text()
+      console.log("Paystack response text:", paystackResponseText)
+    } catch (textError) {
+      console.error("Failed to read Paystack response:", textError)
+      return NextResponse.json(
+        {
+          status: false,
+          message: "Failed to read payment service response",
+        },
+        { status: 500 },
+      )
+    }
 
     if (!paystackResponse.ok) {
-      const errorText = await paystackResponse.text()
-      console.error("Paystack API error:", errorText)
+      console.error("Paystack API error:", paystackResponseText)
 
-      // Try to parse error response
+      // Try to parse Paystack error response
       let errorMessage = `Payment service error: ${paystackResponse.status}`
+      let debugInfo = { paystackError: paystackResponseText }
+
       try {
-        const errorJson = JSON.parse(errorText)
+        const errorJson = JSON.parse(paystackResponseText)
         errorMessage = errorJson.message || errorMessage
-      } catch (e) {
-        // Keep default error message
+        debugInfo = { ...debugInfo, paystackErrorData: errorJson }
+      } catch (parseError) {
+        console.error("Failed to parse Paystack error response:", parseError)
       }
 
       return NextResponse.json(
         {
           status: false,
           message: errorMessage,
-          debug: process.env.NODE_ENV === "development" ? { paystackError: errorText } : undefined,
+          debug: process.env.NODE_ENV === "development" ? debugInfo : undefined,
         },
         { status: 500 },
       )
     }
 
-    const result = await paystackResponse.json()
-    console.log("Paystack response:", result)
+    // Parse successful Paystack response
+    let result
+    try {
+      result = JSON.parse(paystackResponseText)
+      console.log("Paystack success response:", result)
+    } catch (parseError) {
+      console.error("Failed to parse Paystack success response:", parseError)
+      return NextResponse.json(
+        {
+          status: false,
+          message: "Invalid response from payment service",
+        },
+        { status: 500 },
+      )
+    }
 
     return NextResponse.json(result)
   } catch (error) {
-    console.error("Paystack initialization error:", error)
+    console.error("=== Paystack Initialize Route Error ===", error)
     return NextResponse.json(
       {
         status: false,
         message: "Internal server error",
         error: error instanceof Error ? error.message : "Unknown error",
+        debug:
+          process.env.NODE_ENV === "development"
+            ? {
+                stack: error instanceof Error ? error.stack : undefined,
+                timestamp: new Date().toISOString(),
+              }
+            : undefined,
       },
       { status: 500 },
     )
