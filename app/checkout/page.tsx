@@ -1,11 +1,10 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, CreditCard, Truck, Check, Smartphone, AlertCircle, Info } from "lucide-react"
+import { ArrowLeft, CreditCard, Truck, Check, Smartphone, AlertCircle, Info, ShoppingCart } from "lucide-react"
 import { useCart } from "@/hooks/use-cart"
 import { useAuth } from "@/hooks/use-auth"
 import { useEmailNotifications } from "@/hooks/use-email-notifications"
@@ -15,7 +14,181 @@ import Image from "next/image"
 type CheckoutStep = "shipping" | "payment" | "confirmation"
 type PaymentMethod = "paystack" | "momo"
 
+// Loading component for when providers are initializing
+function CheckoutLoading() {
+  return (
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-rose-200 via-rose-300 to-purple-500">
+      <div className="px-6 py-4">
+        <Link href="/" className="inline-flex items-center text-black">
+          <ArrowLeft className="h-5 w-5 mr-1" />
+          Back to Shop
+        </Link>
+      </div>
+      <main className="flex-1 container mx-auto px-4 py-6 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold mb-2">Loading Checkout...</h2>
+          <p className="text-gray-600">Please wait while we prepare your checkout.</p>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+// Empty cart component
+function EmptyCartMessage() {
+  return (
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-rose-200 via-rose-300 to-purple-500">
+      <div className="px-6 py-4">
+        <Link href="/" className="inline-flex items-center text-black">
+          <ArrowLeft className="h-5 w-5 mr-1" />
+          Back to Shop
+        </Link>
+      </div>
+      <main className="flex-1 container mx-auto px-4 py-6 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-lg p-8 text-center max-w-md">
+          <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Your Cart is Empty</h2>
+          <p className="text-gray-600 mb-6">Add some items to your cart before proceeding to checkout.</p>
+          <Link
+            href="/"
+            className="inline-block py-3 px-6 bg-gradient-to-r from-rose-400 to-purple-500 text-white rounded-lg font-medium hover:from-rose-500 hover:to-purple-600 transition-colors"
+          >
+            Continue Shopping
+          </Link>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+// Error component
+function CheckoutError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-rose-200 via-rose-300 to-purple-500">
+      <div className="px-6 py-4">
+        <Link href="/" className="inline-flex items-center text-black">
+          <ArrowLeft className="h-5 w-5 mr-1" />
+          Back to Shop
+        </Link>
+      </div>
+      <main className="flex-1 container mx-auto px-4 py-6 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-lg p-8 text-center max-w-md">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Checkout Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={onRetry}
+              className="py-2 px-4 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+            >
+              Try Again
+            </button>
+            <Link
+              href="/"
+              className="inline-block py-2 px-4 bg-gradient-to-r from-rose-400 to-purple-500 text-white rounded-lg font-medium hover:from-rose-500 hover:to-purple-600 transition-colors"
+            >
+              Go Home
+            </Link>
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
+
 export default function CheckoutPage() {
+  const [isClient, setIsClient] = useState(false)
+  const [cartError, setCartError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+  const router = useRouter()
+  const cartData = useCart()
+  const authData = useAuth()
+  const emailData = useEmailNotifications()
+  const paystackData = usePaystack()
+
+  // Initialize client-side rendering
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  // Don't render anything on server side to avoid hydration issues
+  if (!isClient) {
+    return <CheckoutLoading />
+  }
+
+  // Handle cart error
+  if (cartError) {
+    return (
+      <CheckoutError
+        error={cartError}
+        onRetry={() => {
+          setCartError(null)
+          setRetryCount((prev) => prev + 1)
+          window.location.reload()
+        }}
+      />
+    )
+  }
+
+  // Handle missing cart data
+  if (!cartData) {
+    return <CheckoutLoading />
+  }
+
+  // Safely extract cart properties with defaults
+  const cartItems = cartData.cartItems || []
+  const cartTotal = cartData.cartTotal || 0
+  const clearCart = cartData.clearCart || (() => {})
+
+  // Handle empty cart
+  if (cartItems.length === 0) {
+    return <EmptyCartMessage />
+  }
+
+  // Extract other context data with defaults
+  const user = authData?.user || null
+  const sendOrderConfirmation = emailData?.sendOrderConfirmation || (async () => {})
+  const initializePayment = paystackData?.initializePayment || (async () => {})
+  const verifyPayment = paystackData?.verifyPayment || (async () => {})
+  const paystackLoading = paystackData?.isLoading || false
+
+  return (
+    <CheckoutContent
+      cartItems={cartItems}
+      cartTotal={cartTotal}
+      clearCart={clearCart}
+      user={user}
+      sendOrderConfirmation={sendOrderConfirmation}
+      initializePayment={initializePayment}
+      verifyPayment={verifyPayment}
+      paystackLoading={paystackLoading}
+    />
+  )
+}
+
+// Main checkout component
+function CheckoutContent({
+  cartItems,
+  cartTotal,
+  clearCart,
+  user,
+  sendOrderConfirmation,
+  initializePayment,
+  verifyPayment,
+  paystackLoading,
+}: {
+  cartItems: any[]
+  cartTotal: number
+  clearCart: () => void
+  user: any
+  sendOrderConfirmation: any
+  initializePayment: any
+  verifyPayment: any
+  paystackLoading: boolean
+}) {
+  const router = useRouter()
+
   // Check if Paystack is properly configured
   const isPaystackConfigured =
     process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY &&
@@ -43,13 +216,6 @@ export default function CheckoutPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [debugInfo, setDebugInfo] = useState<any>(null)
 
-  const { cartItems, cartTotal, clearCart } = useCart()
-  const { user } = useAuth()
-  const { sendOrderConfirmation } = useEmailNotifications()
-  const router = useRouter()
-
-  const { initializePayment, verifyPayment, isLoading: paystackLoading } = usePaystack()
-
   const handlePaymentSuccess = async (paymentReference: string) => {
     const newOrderId = `ORD-${Math.floor(100000 + Math.random() * 900000)}`
     const trackingNumber = `TRK-${Math.floor(100000 + Math.random() * 900000)}`
@@ -75,15 +241,15 @@ export default function CheckoutPage() {
       ],
     }
 
-    const existingOrders = JSON.parse(localStorage.getItem(`orders-${user?.id}`) || "[]")
+    const existingOrders = JSON.parse(localStorage.getItem(`orders-${user?.id || "guest"}`) || "[]")
     existingOrders.unshift(order)
-    localStorage.setItem(`orders-${user?.id}`, JSON.stringify(existingOrders))
+    localStorage.setItem(`orders-${user?.id || "guest"}`, JSON.stringify(existingOrders))
 
     // Send order confirmation email
     try {
       await sendOrderConfirmation({
         id: newOrderId,
-        customerEmail: user?.email,
+        customerEmail: user?.email || `${shippingInfo.fullName.toLowerCase().replace(/\s+/g, "")}@shopgrad.com`,
         total: totalAmount,
         items: cartItems,
       })
@@ -206,11 +372,6 @@ export default function CheckoutPage() {
   const tax = cartTotal * 0.125 // Ghana VAT is 12.5%
   const totalAmount = cartTotal + shippingCost + tax
 
-  if (cartItems.length === 0 && currentStep !== "confirmation") {
-    router.push("/")
-    return null
-  }
-
   const ghanaRegions = [
     "Greater Accra",
     "Ashanti",
@@ -268,7 +429,7 @@ export default function CheckoutPage() {
 
                 <div className="mt-3 text-xs text-red-600">
                   <p>If this error persists:</p>
-                  <ul className="list-disc list-inside mt-1 space-y-1">
+                  <ul className="list-disc list-inside space-y-1">
                     <li>Check your internet connection</li>
                     <li>Verify your payment details</li>
                     <li>Try refreshing the page</li>
@@ -630,7 +791,9 @@ export default function CheckoutPage() {
               </div>
               <h1 className="text-2xl font-bold mb-2">Payment Successful!</h1>
               <p className="text-gray-600 mb-2">Your order #{orderId} has been confirmed and paid.</p>
-              <p className="text-sm text-gray-500 mb-6">📧 A confirmation email has been sent to {user?.email}</p>
+              <p className="text-sm text-gray-500 mb-6">
+                📧 A confirmation email has been sent to {user?.email || "your email"}
+              </p>
 
               <div className="bg-gray-50 rounded-lg p-4 mb-6">
                 <div className="flex items-center justify-center mb-2">
@@ -675,7 +838,7 @@ export default function CheckoutPage() {
                         alt={item.name}
                         fill
                         className="object-cover"
-                        unoptimized={item.image.startsWith("http")}
+                        unoptimized={item.image?.startsWith("http")}
                       />
                     </div>
                     <div className="ml-4 flex-1">
