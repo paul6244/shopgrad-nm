@@ -52,8 +52,8 @@ class PaystackService {
 
   constructor() {
     this.config = {
-      publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_default",
-      secretKey: process.env.PAYSTACK_SECRET_KEY || "sk_test_default",
+      publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_1e034e6aa5087869e8799bcc4511eeabcfbfc847",
+      secretKey: process.env.PAYSTACK_SECRET_KEY || "sk_test_6e8b9922413610e3c5dada7afa87589df7deacb3",
       baseUrl: "https://api.paystack.co",
     }
   }
@@ -61,7 +61,7 @@ class PaystackService {
   // Initialize payment transaction
   async initializePayment(data: PaystackInitializeData): Promise<PaystackResponse> {
     try {
-      if (!this.config.secretKey || this.config.secretKey === "sk_test_default") {
+      if (!this.config.secretKey) {
         throw new Error("Paystack secret key not configured")
       }
 
@@ -98,7 +98,7 @@ class PaystackService {
   // Verify payment transaction
   async verifyPayment(reference: string): Promise<PaystackVerifyResponse> {
     try {
-      if (!this.config.secretKey || this.config.secretKey === "sk_test_default") {
+      if (!this.config.secretKey) {
         throw new Error("Paystack secret key not configured")
       }
 

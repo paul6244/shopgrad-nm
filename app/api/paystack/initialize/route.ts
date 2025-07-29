@@ -60,14 +60,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for Paystack secret key
-    const secretKey = process.env.PAYSTACK_SECRET_KEY
+    const secretKey = process.env.PAYSTACK_SECRET_KEY || "sk_test_6e8b9922413610e3c5dada7afa87589df7deacb3"
     console.log("Environment check:", {
       hasSecretKey: !!secretKey,
       keyPrefix: secretKey?.substring(0, 7),
       nodeEnv: process.env.NODE_ENV,
+      isTestKey: secretKey?.startsWith("sk_test_"),
     })
 
-    if (!secretKey || secretKey === "sk_test_default") {
+    if (!secretKey) {
       console.log("Paystack secret key not configured")
       return NextResponse.json(
         {

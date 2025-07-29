@@ -91,9 +91,10 @@ export function usePaystack() {
       }
 
       // Check if we have Paystack popup available
-      const publicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
+      const publicKey =
+        process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_1e034e6aa5087869e8799bcc4511eeabcfbfc847"
 
-      if (!publicKey || publicKey === "pk_test_default") {
+      if (!publicKey) {
         throw new Error("Paystack public key not configured")
       }
 
